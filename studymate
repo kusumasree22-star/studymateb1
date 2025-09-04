@@ -1,0 +1,103 @@
+# =============================
+# 1. Install dependencies
+# =============================
+!pip install ibm-watsonx-ai PyPDF2 python-docx
+
+# =============================
+# 2. Imports
+# =============================
+import PyPDF2
+import docx
+from ibm_watsonx_ai import APIClient
+from ibm_watsonx_ai.foundation_models import ModelInference
+from ibm_watsonx_ai.wml_client_error import WMLClientError
+from google.colab import files
+
+# =============================
+# 3. Credentials (enter securely)
+# =============================
+API_KEY = input("🔑 Enter your IBM Cloud API Key: ")
+API_URL = input("🌐 Enter your IBM Cloud URL (e.g. https://us-south.ml.cloud.ibm.com): ")
+PROJECT_ID = input("📂 Enter your Watsonx.ai Project ID: ")
+
+credentials = {"apikey": API_KEY, "url": API_URL}
+
+try:
+    client = APIClient(credentials=credentials, project_id=PROJECT_ID)
+    print("✅ Authentication successful!")
+except WMLClientError as e:
+    print("❌ Authentication failed. Check your API Key, URL, and Project ID.")
+    raise
+
+# =============================
+# 4. File Upload
+# =============================
+uploaded = files.upload()
+file_path = list(uploaded.keys())[0]  # Take first uploaded file
+print("📄 File uploaded:", file_path)
+
+# =============================
+# 5. File loaders
+# =============================
+def load_pdf_text(path):
+    text = ""
+    with open(path, "rb") as f:
+        reader = PyPDF2.PdfReader(f)
+        for page in reader.pages:
+            text += page.extract_text() or ""
+    return text
+
+def load_docx_text(path):
+    doc = docx.Document(path)
+    return "\n".join([para.text for para in doc.paragraphs])
+
+def load_txt_text(path):
+    with open(path, "r", encoding="utf-8") as f:
+        return f.read()
+
+def load_document(path):
+    if path.lower().endswith(".pdf"):
+        return load_pdf_text(path)
+    elif path.lower().endswith(".docx"):
+        return load_docx_text(path)
+    elif path.lower().endswith(".txt"):
+        return load_txt_text(path)
+    else:
+        raise ValueError("Unsupported file type. Use PDF, DOCX, or TXT.")
+
+# =============================
+# 6. Initialize Granite model
+# =============================
+model_id = "ibm/granite-13b-instruct-v2"
+inference = ModelInference(model_id=model_id, client=client, project_id=PROJECT_ID)
+
+def run_prompt(prompt):
+    try:
+        result = inference.generate_text(
+            prompt=prompt,
+            max_new_tokens=500,
+            temperature=0.2
+        )
+        return result["results"][0].get("generated_text", "").strip()
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+# =============================
+# 7. Process document
+# =============================
+document_text = load_document(file_path)
+
+summary_prompt = f"Summarize this document:\n\n{document_text}\n\nSummary:"
+qa_prompt = f"From the following document, generate 5 key questions with their answers:\n\n{document_text}\n\nQ&A:"
+cheatsheet_prompt = f"Create a concise cheat sheet with bullet points from this document:\n\n{document_text}\n\nCheat Sheet:"
+
+summary = run_prompt(summary_prompt)
+qa = run_prompt(qa_prompt)
+cheatsheet = run_prompt(cheatsheet_prompt)
+
+# =============================
+# 8. Print results
+# =============================
+print("=== Summary ===\n", summary, "\n")
+print("=== Q&A ===\n", qa, "\n")
+print("=== Cheat Sheet ===\n", cheatsheet, "\n")
